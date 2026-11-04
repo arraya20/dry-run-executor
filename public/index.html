@@ -1,39 +1,68 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Pharos Dry-Run Executor</title>
-  <style>
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; max-width: 800px; margin: 0 auto; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
-    input, button { padding: 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; margin: 4px; width: 90%; }
-    button { background: #10b981; width: auto; cursor: pointer; }
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>dry-run · Pharos transaction simulator</title>
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <h1>⚡ Pharos Dry-Run Executor</h1>
-  <div class="card">
-    <label>To Address:</label><input id="to" value="0x6b0a44c64190279f7034b77c13a566e914fe5ec4"><br>
-    <label>Calldata:</label><input id="data" value="0xa9059cbb0000000000000000000000002e1c3e80d13b03aac05aeefacc254e26d6fafb510000000000000000000000000000000000000000000000000de0b6b3a7640000"><br>
-    <button id="simBtn">Simulate Dry-Run</button>
-  </div>
-  <div id="output"></div>
+  <main>
+    <header>
+      <h1>dry-run</h1>
+      <p class="sub">Simulate a Pharos transaction against real state before you sign it. Nothing here signs or broadcasts.</p>
+      <p class="chain" id="chain">chain —</p>
+    </header>
 
-  <script type="module">
-    import { simulateTransaction } from "./simulator.mjs";
-    document.getElementById("simBtn").onclick = () => {
-      const res = simulateTransaction({
-        to: document.getElementById("to").value,
-        data: document.getElementById("data").value
-      });
-      document.getElementById("output").innerHTML = `
-        <div class="card">
-          <h3>Simulation Status: <span style="color:#10b981;">${res.simulationStatus}</span></h3>
-          <p><strong>Predicted Gas:</strong> ${res.estimatedGas} units</p>
-          <p><strong>Estimated Cost:</strong> ${res.estimatedCostPROS} PROS</p>
-        </div>
-      `;
-    };
-  </script>
+    <form id="form" autocomplete="off">
+      <label>from<input id="from" name="from" placeholder="0x… sender" spellcheck="false" /></label>
+      <label>to<input id="to" name="to" placeholder="0x… target" spellcheck="false" /></label>
+      <label>data<textarea id="data" name="data" rows="3" placeholder="0x… calldata, empty for a plain value transfer" spellcheck="false"></textarea></label>
+      <label>value (wei)<input id="value" name="value" placeholder="0" spellcheck="false" /></label>
+      <div class="row">
+        <button type="submit" id="go">Simulate</button>
+        <label class="inline"><input type="checkbox" id="fast" /> skip history sample</label>
+      </div>
+    </form>
+
+    <p class="error" id="error" hidden></p>
+
+    <section id="result" hidden>
+      <p class="verdict" id="verdict"></p>
+
+      <h2>Intent</h2>
+      <p id="intent"></p>
+      <p class="warn" id="intent-warn" hidden></p>
+
+      <h2>Execution</h2>
+      <p id="execution"></p>
+      <p class="mono detail" id="execution-detail" hidden></p>
+
+      <h2>Cost</h2>
+      <table id="cost"></table>
+
+      <h2>Funding</h2>
+      <table id="funding"></table>
+
+      <h2>Target</h2>
+      <table id="target"></table>
+
+      <h2>Expected changes</h2>
+      <p class="note">Derived from calldata. This node cannot report post-state, so these are predicted, not observed.</p>
+      <table id="deltas"></table>
+
+      <h2>Blocking</h2>
+      <ul id="blocking"></ul>
+
+      <h2>Not measured</h2>
+      <ul id="not-measured"></ul>
+
+      <details>
+        <summary>Raw report</summary>
+        <pre id="raw"></pre>
+      </details>
+    </section>
+  </main>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

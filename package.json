@@ -1,10 +1,28 @@
 {
-  "name": "pharos-dry-run-executor",
-  "version": "1.0.0",
+  "name": "dry-run-executor",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Simulate a Pharos transaction against real state — cost, revert reason, and funding — before it is signed. Measures by bisection instead of trusting the node's estimate.",
   "type": "module",
-  "description": "Pre-flight EVM transaction simulator with revert prediction and gas estimation.",
-  "scripts": {
-    "test": "node test/index.test.mjs"
+  "bin": {
+    "dry-run": "./bin/dry-run.mjs"
   },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node test/unit.test.mjs && node test/api.test.mjs",
+    "test:unit": "node test/unit.test.mjs",
+    "test:api": "node test/api.test.mjs",
+    "test:live": "node test/live.test.mjs",
+    "verify:chain": "node scripts/verify-chain.mjs"
+  },
+  "keywords": [
+    "pharos",
+    "evm",
+    "simulation",
+    "preflight",
+    "dry-run"
+  ],
   "license": "MIT"
 }

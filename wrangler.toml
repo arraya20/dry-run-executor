@@ -1,0 +1,11 @@
+name = "dry-run-executor"
+pages_build_output_dir = "public"
+compatibility_date = "2026-01-01"
+
+# The Worker runs on workerd, which has no `process` and no `node:fs`. Everything
+# under src/ and functions/ is kept free of node built-ins so the same modules
+# serve the CLI and the deployed function.
+#
+# Optional overrides:
+#   PHAROS_RPC                point the function at a different node
+#   PHAROS_EXPECTED_CHAIN_ID  refuse to simulate if the node reports another chain

@@ -1,0 +1,226 @@
+/* One neutral palette, one accent per verdict, no decoration that carries no
+   meaning. The report is dense; the layout's only job is to keep the verdict,
+   the cost, and the list of things not measured equally visible. */
+
+:root {
+  --ink: #16181d;
+  --ink-2: #4a5160;
+  --ink-3: #767e8d;
+  --line: #e3e6eb;
+  --bg: #ffffff;
+  --bg-2: #f7f8fa;
+  --ok: #1d7a46;
+  --bad: #b42318;
+  --warn: #8a5a00;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-family: var(--mono);
+}
+
+.sub {
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  max-width: 58ch;
+}
+
+.chain {
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+form {
+  margin: 32px 0 0;
+  display: grid;
+  gap: 14px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--ink-2);
+  text-transform: lowercase;
+}
+
+input, textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13px/1.5 var(--mono);
+}
+
+textarea { resize: vertical; }
+
+input:focus, textarea:focus {
+  outline: 2px solid #c9d3e4;
+  outline-offset: 1px;
+  border-color: #b9c4d6;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+button {
+  padding: 9px 18px;
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  background: var(--ink);
+  color: #fff;
+  font: 500 13px/1 var(--mono);
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.55; cursor: progress; }
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  text-transform: none;
+  color: var(--ink-2);
+}
+
+.inline input { width: auto; }
+
+.error {
+  margin: 20px 0 0;
+  padding: 11px 13px;
+  border: 1px solid #f0c2bc;
+  border-left: 3px solid var(--bad);
+  border-radius: 6px;
+  background: #fdf3f2;
+  color: var(--bad);
+  font-size: 13px;
+}
+
+#result { margin-top: 36px; }
+
+.verdict {
+  margin: 0 0 28px;
+  padding: 14px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  font: 600 14px/1.3 var(--mono);
+  letter-spacing: 0.01em;
+}
+
+.verdict.ok { color: var(--ok); border-color: #bfe0cc; background: #f2faf5; }
+.verdict.bad { color: var(--bad); border-color: #f0c2bc; background: #fdf3f2; }
+.verdict.warn { color: var(--warn); border-color: #e8d5a8; background: #fdf9ee; }
+
+h2 {
+  margin: 26px 0 8px;
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+#result p { margin: 0; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  text-align: left;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+th {
+  width: 190px;
+  font-weight: 400;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+td { font-family: var(--mono); word-break: break-all; }
+
+td.ok { color: var(--ok); }
+td.bad { color: var(--bad); }
+td.muted, .muted { color: var(--ink-3); }
+
+.mono { font-family: var(--mono); font-size: 12px; }
+.detail { margin-top: 6px !important; color: var(--ink-2); word-break: break-all; }
+
+.warn {
+  margin-top: 8px !important;
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.note {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-bottom: 8px !important;
+}
+
+ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+li { margin: 5px 0; }
+
+details { margin-top: 30px; }
+
+summary {
+  cursor: pointer;
+  font: 12px var(--mono);
+  color: var(--ink-3);
+}
+
+pre {
+  margin: 10px 0 0;
+  padding: 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-x: auto;
+  font: 12px/1.5 var(--mono);
+}
+
+@media (max-width: 620px) {
+  main { padding: 32px 16px 72px; }
+  th { width: 120px; }
+}
