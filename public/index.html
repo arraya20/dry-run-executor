@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pharos Dry-Run Executor</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; max-width: 800px; margin: 0 auto; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+    input, button { padding: 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; margin: 4px; width: 90%; }
+    button { background: #10b981; width: auto; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>⚡ Pharos Dry-Run Executor</h1>
+  <div class="card">
+    <label>To Address:</label><input id="to" value="0x6b0a44c64190279f7034b77c13a566e914fe5ec4"><br>
+    <label>Calldata:</label><input id="data" value="0xa9059cbb0000000000000000000000002e1c3e80d13b03aac05aeefacc254e26d6fafb510000000000000000000000000000000000000000000000000de0b6b3a7640000"><br>
+    <button id="simBtn">Simulate Dry-Run</button>
+  </div>
+  <div id="output"></div>
+
+  <script type="module">
+    import { simulateTransaction } from "./simulator.mjs";
+    document.getElementById("simBtn").onclick = () => {
+      const res = simulateTransaction({
+        to: document.getElementById("to").value,
+        data: document.getElementById("data").value
+      });
+      document.getElementById("output").innerHTML = `
+        <div class="card">
+          <h3>Simulation Status: <span style="color:#10b981;">${res.simulationStatus}</span></h3>
+          <p><strong>Predicted Gas:</strong> ${res.estimatedGas} units</p>
+          <p><strong>Estimated Cost:</strong> ${res.estimatedCostPROS} PROS</p>
+        </div>
+      `;
+    };
+  </script>
+</body>
+</html>

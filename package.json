@@ -1,0 +1,10 @@
+{
+  "name": "pharos-dry-run-executor",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Pre-flight EVM transaction simulator with revert prediction and gas estimation.",
+  "scripts": {
+    "test": "node test/index.test.mjs"
+  },
+  "license": "MIT"
+}
