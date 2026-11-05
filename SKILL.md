@@ -38,7 +38,7 @@ Exit codes: `0` READY, `1` do not send, `2` bad usage / nothing simulated.
 Verification of the tool itself:
 
 ```bash
-npm test              # offline: 35 unit + 18 api
+npm test              # offline: 38 unit + 18 api
 npm run test:live     # 15 tests against Pharos, structure only
 npm run verify:chain  # re-derives every external claim from the chain
 ```
@@ -46,9 +46,11 @@ npm run verify:chain  # re-derives every external claim from the chain
 ## How the numbers are produced
 
 **Gas.** By bisection on the `gas` field of `eth_call`: find the smallest value at
-which the call still succeeds. Measured mean absolute error against real receipts
-is 1.03%, versus +31.8% for `eth_estimateGas` on this node. The reported limit
-adds 15% headroom over the measurement.
+which the call still succeeds. Measured against real receipts, mean absolute
+error is ~6% (worst ~27% on one selector) versus ~+42% for `eth_estimateGas`
+on this node. Accuracy is not uniform across selectors; both the mean and the
+worst case are reported. The reported limit adds 15% headroom over the
+measurement.
 
 **Revert reason.** `eth_call` at a pinned block; the payload is decoded as
 `Error(string)`, `Panic(uint256)`, or a named ERC-6093 error such as

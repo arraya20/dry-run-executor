@@ -44,27 +44,37 @@ conclusion, and every figure comes from a node.
 
 This is the central claim, and it is measured rather than asserted. Replaying
 successful historical transfers at their parent block and comparing both methods
-against the `gasUsed` the receipt actually recorded:
+against the `gasUsed` the receipt actually recorded (`npm run verify:chain`):
 
 | transaction | receipt | bisection | error | node estimate | error |
 |---|---|---|---|---|---|
 | `0x095ea7b3` | 53,996 | 54,349 | +0.65% | 69,682 | +29.1% |
-| `0xb4430b99` | 122,202 | 123,651 | +1.19% | 163,967 | +34.2% |
-| `0x095ea7b3` | 53,648 | 54,000 | +0.66% | 69,252 | +29.1% |
+| `0xb4430b99` | 105,102 | 106,278 | +1.12% | 141,447 | +34.6% |
 | `0xba087652` | 195,301 | 197,894 | +1.33% | 260,237 | +33.2% |
-| `0xba087652` | 195,313 | 197,906 | +1.33% | 260,253 | +33.2% |
+| `0x095ea7b3` | 36,896 | 36,976 | +0.22% | 48,516 | +31.5% |
+| `0x2e6cb841` | 150,493 | 190,610 | +26.66% | 277,084 | +84.1% |
 
-Mean absolute error: **1.03%** (bisection) versus **+31.8%** (the node's estimate).
+Mean absolute error: **5.99%** (bisection) versus **+42.5%** (the node's
+estimate), worst **26.66%**.
 
 The bisection searches for the smallest `gas` value at which `eth_call` still
 succeeds, which lands on the real requirement. It costs about 17 cheap calls.
 
-One subtlety worth knowing, because it shaped the implementation: this node
-answers "not enough gas" with the same `code 3` revert it uses for a genuine
-revert, empty data and all. The error text cannot distinguish them, so the
-bisection does not try. It first proves the call succeeds at a generous upper
-bound; after that, any failure at a lower bound can only mean the bound is too
-low. That invariant is what makes the search sound.
+Two things worth knowing, because they shaped the implementation and the honest
+limits:
+
+1. This node answers "not enough gas" with the same `code 3` revert it uses for
+   a genuine revert, empty data and all. The error text cannot distinguish them,
+   so the bisection does not try. It first proves the call succeeds at a
+   generous upper bound; after that, any failure at a lower bound can only mean
+   the bound is too low. That invariant is what makes the search sound.
+
+2. Accuracy is not uniform. One selector (`0x2e6cb841`) over-measures by ~27%
+   while the others sit near 1%. It is not hidden from the table above: the mean
+   and the worst case are both reported, so a caller budgeting gas sees the real
+   spread rather than a cherry-picked sample. The node's estimate over that same
+   transaction is +84%, so bisection is still the better bound — just not
+   uniformly, and the headroom below exists partly for that reason.
 
 The node's estimate is still reported — as a separate number, labelled as the
 node's, with the gap shown. It is never used as the budget.
@@ -76,8 +86,9 @@ shift between the pinned block and inclusion. Headroom is free unless used: you
 are billed for gas consumed, not for the limit submitted.
 
 Reverts under a bad gas bound and refunds for cleared storage both mean the
-measured minimum is not always identical to the receipt figure. Observed error
-stayed under 1.4% across the sample above; it is a measurement, not a proof.
+measured minimum is not always identical to the receipt figure. The numbers above
+are a measurement, not a proof, and they move as the sampler picks different
+transactions each run.
 
 ---
 
@@ -182,7 +193,7 @@ plausible-looking report.
 ## Development
 
 ```bash
-npm test              # 35 unit + 18 api, offline, no install
+npm test              # 38 unit + 18 api, offline, no install
 npm run test:live     # 15 tests against Pharos, opt-in, structure only
 npm run verify:chain  # 12 checks re-deriving every external claim
 ```
