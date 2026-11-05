@@ -24,6 +24,7 @@ function makeNode() {
     balances: new Map([[SENDER.toLowerCase(), 10n ** 19n]]), // 10 PROS
     code: new Map([[CONTRACT.toLowerCase(), "0x6080604052"]]),
     mode: "ok", // "ok" | "revert" | "down"
+    tokenReadsFail: false, // only the ERC20 getters fail, not the simulated call
     logQueries: 0,
     callCount: 0,
   };
@@ -61,6 +62,14 @@ function makeNode() {
       case "eth_call": {
         state.callCount++;
         if (state.mode === "down") return fail(-32000, "node is unavailable");
+        // Token context is read with four separate getters. Make them fail while
+        // the transaction itself still simulates, which is exactly the case that
+        // used to collapse into "standard: false" and a clean verdict.
+        const data = String((params[0] || {}).data || "");
+        const TOKEN_GETTERS = ["0x70a08231", "0x313ce567", "0x95d89b41", "0xdd62ed3e"];
+        if (state.tokenReadsFail && TOKEN_GETTERS.some((sel) => data.startsWith(sel))) {
+          return fail(-32011, "cu limit exceeded");
+        }
         if (state.mode === "revert") {
           // Error(string) "nope"
           return fail(
@@ -258,6 +267,24 @@ test("a chain mismatch stops the simulation", async () => {
   eq(res.status, 502);
   const body = await res.json();
   includes(String(body.detail || body.error), "chain");
+});
+
+test("an unreadable token context downgrades the verdict instead of claiming READY", async () => {
+  // approve(address,uint256) with a non-zero amount, so the tool must read
+  // balanceOf/decimals to describe what the caller is handing over.
+  const data = "0x095ea7b3" + "0".repeat(24) + CONTRACT.slice(2) + "0".repeat(63) + "1";
+  state.tokenReadsFail = true;
+  const res = await post({ from: SENDER, to: CONTRACT, data });
+  eq(res.status, 200);
+  const report = await res.json();
+  eq(report.token.readStatus, "unavailable", "a failed getter is not an empty answer");
+  eq(report.verdict, "INCOMPLETE", "READY would mean the token context was measured");
+  ok(
+    report.blocking.some((line) => line.includes("token context could not be read")),
+    "the reason must be in blocking, not only in the token object",
+  );
+  ok(report.token.readErrors.length > 0, "the node's own message must survive");
+  state.tokenReadsFail = false;
 });
 
 test("the report is JSON-serialisable despite BigInt internals", async () => {

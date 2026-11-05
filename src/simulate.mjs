@@ -148,10 +148,9 @@ function classifyFailure(err) {
 /** Read a uint/string/bool getter, returning null instead of throwing when absent. */
 async function tryCall(rpc, blockTag, to, data) {
   try {
-    const out = await rpc.call("eth_call", [{ to, data }, blockTag]);
-    return out;
-  } catch {
-    return null;
+    return { ok: true, value: await rpc.call("eth_call", [{ to, data }, blockTag]) };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
   }
 }
 
@@ -180,7 +179,7 @@ function decodeStringResult(hex) {
 }
 
 async function readTokenContext(rpc, blockTag, token, holder, spender) {
-  const [symbolHex, decimalsHex, balanceHex, allowanceHex] = await Promise.all([
+  const [symbolRead, decimalsRead, balanceRead, allowanceRead] = await Promise.all([
     tryCall(rpc, blockTag, token, ERC20.symbol),
     tryCall(rpc, blockTag, token, ERC20.decimals),
     tryCall(rpc, blockTag, token, ERC20.balanceOf + padWord(holder)),
@@ -189,8 +188,13 @@ async function readTokenContext(rpc, blockTag, token, holder, spender) {
       : Promise.resolve(null),
   ]);
 
-  const decimals = decimalsHex ? Number(wordToBigInt(decimalsHex)) : null;
-  const balance = balanceHex ? wordToBigInt(balanceHex) : null;
+  const readErrors = [symbolRead, decimalsRead, balanceRead].filter((r) => !r.ok).map((r) => r.error);
+  const symbolHex = symbolRead.ok ? symbolRead.value : null;
+  const decimalsHex = decimalsRead.ok ? decimalsRead.value : null;
+  const balanceHex = balanceRead.ok ? balanceRead.value : null;
+  const allowanceHex = allowanceRead.ok ? allowanceRead.value : null;
+  const decimals = decimalsHex && decimalsHex !== "0x" ? Number(wordToBigInt(decimalsHex)) : null;
+  const balance = balanceHex && balanceHex !== "0x" ? wordToBigInt(balanceHex) : null;
   return {
     symbol: decodeStringResult(symbolHex),
     decimals,
@@ -198,7 +202,9 @@ async function readTokenContext(rpc, blockTag, token, holder, spender) {
     // Human-readable form so a report never needs the reader to do decimal shifts.
     balanceFormatted: balance !== null && decimals !== null ? formatTokenAmount(balance, decimals) : null,
     allowance: allowanceHex ? wordToBigInt(allowanceHex).toString() : null,
-    standard: balanceHex !== null,
+    standard: balance !== null,
+    readStatus: readErrors.length ? "unavailable" : "measured",
+    readErrors,
   };
 }
 
@@ -354,6 +360,9 @@ export async function dryRun(input, deps = {}) {
   if (gasPlan.gasLimit === null) {
     blocking.push("no gas limit could be derived, so this transaction is not submittable as-is");
   }
+  if (token?.readStatus === "unavailable") {
+    blocking.push(`token context could not be read: ${token.readErrors.join("; ")}`);
+  }
 
   // Four outcomes that must not be collapsed into one. A revert is the chain
   // refusing; insufficient funds is the sender being unable to pay; a node that
@@ -361,7 +370,7 @@ export async function dryRun(input, deps = {}) {
   const verdict = {
     reverts: "WILL-REVERT",
     "insufficient-funds": "INSUFFICIENT-FUNDS",
-    succeeds: !sufficient ? "INSUFFICIENT-FUNDS" : gasPlan.gasLimit === null ? "INCOMPLETE" : "READY",
+    succeeds: !sufficient ? "INSUFFICIENT-FUNDS" : token?.readStatus === "unavailable" ? "INCOMPLETE" : gasPlan.gasLimit === null ? "INCOMPLETE" : "READY",
   }[execution.status] || "INCOMPLETE";
 
   // --- what this tool could not see. Stated, never omitted.

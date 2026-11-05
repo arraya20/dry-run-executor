@@ -14,7 +14,7 @@ import {
 import { toQuantity, fromQuantity, isAddress, wordToBigInt, padWord, strip0x } from "../src/hex.mjs";
 import { decodeRevert, PANIC_CODES } from "../src/revert.mjs";
 import { decodeIntent } from "../src/intent.mjs";
-import { intrinsicGas, planGas, percentile } from "../src/gas.mjs";
+import { intrinsicGas, planGas, percentile, quoteFees } from "../src/gas.mjs";
 import { validateRequest, RequestError, formatPROS, formatTokenAmount } from "../src/simulate.mjs";
 
 suite("unit");
@@ -259,6 +259,21 @@ test("the node-vs-measured gap is only reported when it was measured", () => {
 
   const measured = planGas({ measured: { minimum: 40_000n, probes: 5 }, estimate: 50_000n, intrinsic: 21_000n, history: null });
   eq(measured.nodeEstimateOverMeasuredPercent, 25);
+});
+
+test("a feeHistory outage is carried in the source, not silently normalised", async () => {
+  const rpc = {
+    call: async (method) => {
+      if (method === "eth_feeHistory") throw new Error("cu limit exceeded");
+      if (method === "eth_gasPrice") return "0x2540be400";
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const fees = await quoteFees(rpc);
+  eq(fees.baseFee, 10_000_000_000n);
+  ok(fees.source.includes("feeHistory unavailable"), "the fallback must say why it fell back");
+  ok(fees.source.includes("cu limit exceeded"), "the node's own words must survive");
+  ok(String(fees.historyFailure).includes("cu limit exceeded"));
 });
 
 test("percentile interpolates without going out of range", () => {

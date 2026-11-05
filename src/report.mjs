@@ -101,7 +101,11 @@ export function renderText(report) {
     if (report.token.allowance !== null && report.token.allowance !== undefined) {
       push(`  allowance from sender         ${report.token.allowance}`);
     }
-    if (!report.token.standard) push("  this address does not answer balanceOf(address): it may not be an ERC-20");
+    if (report.token.readStatus === "unavailable") {
+      push(`  token context could not be read: ${(report.token.readErrors || []).join("; ")}`);
+    } else if (!report.token.standard) {
+      push("  this address does not answer balanceOf(address): it may not be an ERC-20");
+    }
     push();
   }
 

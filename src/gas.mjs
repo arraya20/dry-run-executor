@@ -150,9 +150,11 @@ export async function sampleHistoricalGas(
  */
 export async function quoteFees(rpc, { blocks = 5, priorityWei = 0n, bufferPercent = 20n } = {}) {
   let history = null;
+  let historyFailure = null;
   try {
     history = await rpc.call("eth_feeHistory", [toQuantity(blocks), "latest", []]);
-  } catch {
+  } catch (error) {
+    historyFailure = String(error?.message || error);
     history = null;
   }
 
@@ -166,7 +168,10 @@ export async function quoteFees(rpc, { blocks = 5, priorityWei = 0n, bufferPerce
       priorityFee: 0n,
       maxFeePerGas: gasPrice,
       spread: { min: gasPrice, max: gasPrice, samples: 1 },
-      source: "eth_gasPrice fallback (feeHistory unavailable)",
+      source: historyFailure
+        ? `eth_gasPrice fallback (feeHistory unavailable: ${historyFailure})`
+        : "eth_gasPrice fallback (feeHistory returned no base fee)",
+      historyFailure,
     };
   }
 
@@ -182,6 +187,7 @@ export async function quoteFees(rpc, { blocks = 5, priorityWei = 0n, bufferPerce
     maxFeePerGas: latestBase + headroom + priority,
     spread: { min: sorted[0], max: sorted[sorted.length - 1], samples: baseFees.length },
     source: "eth_feeHistory",
+    historyFailure: null,
   };
 }
 
