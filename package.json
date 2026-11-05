@@ -1,8 +1,7 @@
 {
   "name": "dry-run-executor",
   "version": "2.0.0",
-  "private": true,
-  "description": "Simulate a Pharos transaction against real state — cost, revert reason, and funding — before it is signed. Measures by bisection instead of trusting the node's estimate.",
+  "description": "Simulate a Pharos transaction against real state \u2014 cost, revert reason, and funding \u2014 before it is signed. Measures by bisection instead of trusting the node's estimate.",
   "type": "module",
   "bin": {
     "dry-run": "./bin/dry-run.mjs"
@@ -24,5 +23,20 @@
     "preflight",
     "dry-run"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "files": [
+    "src",
+    "bin",
+    "scripts",
+    "functions",
+    "public",
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "wrangler.toml"
+  ],
+  "author": "arraya20",
+  "publishConfig": {
+    "access": "public"
+  }
 }
