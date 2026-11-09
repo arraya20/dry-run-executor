@@ -7,10 +7,11 @@
 //
 // eth_estimateGas returns something closer to the first than the second. On
 // Pharos it overestimates real usage by 30-74% in our measurements, so using it
-// as a cost forecast overstates the price by that much. We therefore take the
-// estimate as the safe limit and derive expectedGas from real receipts of the
-// same (contract, selector) pair, falling back to the estimate when the chain
-// gives us no history and saying so.
+// as a cost forecast overstates the price by that much. expectedGas therefore
+// comes from, in order: bisection against real state, the median of past
+// receipts for the same (contract, selector) pair, and only then the node
+// estimate. The limit is expectedGas plus headroom. Every figure carries a
+// label saying which source produced it.
 
 import { toQuantity, fromQuantity, strip0x, words } from "./hex.mjs";
 
@@ -259,10 +260,10 @@ export async function measureMinimumGas(rpc, { tx, blockTag, upperBound, lowerBo
 /**
  * Decide what to submit and what to expect.
  *
- * gasLimit is the maximum of the node estimate and the historical p90 (plus a
- * margin), because the estimate is sometimes below past worst cases. expectedGas
- * is the historical median when we have it: that is what the user will actually
- * pay, and it is measurably below the limit they submit.
+ * expectedGas is what the user will actually pay: the bisection measurement if
+ * there is one, else the historical median, else the node estimate. gasLimit is
+ * expectedGas plus marginPercent (default 15%), floored at the intrinsic gas.
+ * The headroom is free unless used, since billing follows gas consumed.
  */
 export function planGas({ measured, estimate, intrinsic, history, marginPercent = 15n }) {
   // Provenance order, best first. Each label travels with the number so a report

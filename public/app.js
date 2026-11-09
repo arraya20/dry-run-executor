@@ -76,7 +76,7 @@ function render(report) {
     ["node estimate", report.gas.nodeEstimate ? `${num(report.gas.nodeEstimate)} gas` : "—"],
     ["node vs measured", report.gas.nodeEstimateOverMeasuredPercent === null ? "—" : `${report.gas.nodeEstimateOverMeasuredPercent.toFixed(1)}%`],
     ["intrinsic floor", `${num(report.gas.intrinsic)} gas`],
-    ["fee", `${gwei(report.fees.maxFeePerGas)} gwei max, ${gwei(report.fees.priorityFee)} gwei tip`],
+    ["fee", `${gwei(report.fees.effectiveGasPrice)} gwei charged, ${gwei(report.fees.maxFeePerGas)} gwei max`],
     ["base fee", `${gwei(report.fees.baseFee)} gwei (${report.fees.source})`],
   ]);
 
@@ -94,9 +94,55 @@ function render(report) {
     ["token balance", report.token?.balanceFormatted ?? undefined],
   ]);
 
+  const outcome = $("outcome");
+  outcome.replaceChildren();
+  const out = report.outcome;
+  if (!out || out.status !== "predicted" || !out.rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.className = "muted";
+    td.textContent = out?.reason || "No before/after figures could be derived for this call.";
+    tr.append(td);
+    outcome.append(tr);
+  } else {
+    const head = document.createElement("tr");
+    for (const label of ["account", "asset", "before", "after"]) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      head.append(th);
+    }
+    outcome.append(head);
+    for (const r of out.rows) {
+      const tr = document.createElement("tr");
+      const asset = r.kind === "allowance" ? `${r.asset} allowance → ${short(r.spender)}` : r.asset;
+      const change = r.changeFormatted ?? r.change;
+      const cells = [
+        short(r.account),
+        asset,
+        r.beforeFormatted ?? r.before ?? "unreadable",
+        `${r.afterFormatted ?? r.after ?? "unknown"}${change ? ` (${change})` : ""}${r.note ? ` — ${r.note}` : ""}`,
+      ];
+      for (const text of cells) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        tr.append(td);
+      }
+      outcome.append(tr);
+    }
+  }
+
   const deltas = $("deltas");
   deltas.replaceChildren();
-  if (!report.intent.deltas?.length) {
+  if (report.execution.status !== "succeeds") {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 2;
+    td.className = "muted";
+    td.textContent = "None — the call does not succeed.";
+    tr.append(td);
+    deltas.append(tr);
+  } else if (!report.intent.deltas?.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 2;

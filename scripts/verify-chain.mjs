@@ -26,6 +26,17 @@ function record(name, pass, detail) {
   if (detail) console.log(`      ${detail}`);
 }
 
+// A check that needs a historical sample the chain did not offer right now is
+// not a failed claim; it is an unverified one. Say so, and do not fail the run.
+function skip(name, detail) {
+  results.push({ name, skipped: true, detail });
+  console.log(`SKIP  ${name}`);
+  if (detail) console.log(`      ${detail}`);
+}
+
+// Windows of 900 blocks stay under the node's eth_getLogs ceiling.
+const SAMPLE_SPAN = 90_000;
+
 const b = (v) => Number(BigInt(v));
 
 /** Decode a 0x-hex string to bytes. keccak256Hex() hashes text; code hashes are over bytes. */
@@ -125,7 +136,7 @@ console.log(`\nhead is block ${head}\n`);
 {
   const token = "0x6b0a44c64190279f7034b77c13a566e914fe5ec4";
   let sample = null;
-  for (let end = head; end > head - 20_000 && !sample; end -= 900) {
+  for (let end = head; end > head - SAMPLE_SPAN && !sample; end -= 900) {
     const start = Math.max(0, end - 899);
     let logs = [];
     try {
@@ -144,7 +155,7 @@ console.log(`\nhead is block ${head}\n`);
   }
 
   if (!sample) {
-    record("callTracer drops logs", false, "no sample transaction found in range");
+    skip("callTracer drops logs despite withLog: true", `no successful token call found in the last ${SAMPLE_SPAN} blocks; claim not re-verified this run`);
   } else {
     const parent = "0x" + (Number(BigInt(sample.rc.blockNumber)) - 1).toString(16);
     const traced = await rpc.call("debug_traceCall", [
@@ -169,7 +180,7 @@ console.log(`\nhead is block ${head}\n`);
 {
   const token = "0x6b0a44c64190279f7034b77c13a566e914fe5ec4";
   const samples = [];
-  for (let end = head; end > head - 30_000 && samples.length < 5; end -= 900) {
+  for (let end = head; end > head - SAMPLE_SPAN && samples.length < 5; end -= 900) {
     const start = Math.max(0, end - 899);
     let logs = [];
     try {
@@ -220,7 +231,7 @@ console.log(`\nhead is block ${head}\n`);
 
   const usable = rows.filter((r) => r.measured !== null);
   if (!usable.length) {
-    record("bisection measures gas within tolerance of the receipt", false, `no replayable sample among ${rows.length} transactions`);
+    skip("bisection measures gas within 5% of the receipt", `no replayable sample among ${rows.length} transactions in the last ${SAMPLE_SPAN} blocks; claim not re-verified this run`);
   } else {
     const deltas = usable.map((r) => ((r.measured - r.actual) / r.actual) * 100);
     const meanAbs = deltas.reduce((a, d) => a + Math.abs(d), 0) / deltas.length;
@@ -315,8 +326,11 @@ console.log(`\nhead is block ${head}\n`);
 
 // ---------------------------------------------------------------------------
 console.log("");
-const failed = results.filter((r) => !r.pass);
-console.log(`${results.length - failed.length}/${results.length} checks passed`);
+const skipped = results.filter((r) => r.skipped);
+const failed = results.filter((r) => !r.skipped && !r.pass);
+const passed = results.length - failed.length - skipped.length;
+console.log(`${passed} passed, ${failed.length} failed, ${skipped.length} skipped (of ${results.length})`);
+for (const s of skipped) console.log(`skipped: ${s.name}`);
 if (failed.length) {
   console.log("");
   for (const f of failed) console.log(`failed: ${f.name}`);

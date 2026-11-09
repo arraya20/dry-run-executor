@@ -9,6 +9,7 @@
 import { createRpc, assertChain, RpcError } from "./rpc.mjs";
 import { decodeRevert } from "./revert.mjs";
 import { decodeIntent } from "./intent.mjs";
+import { buildOutcome } from "./outcome.mjs";
 import {
   intrinsicGas,
   sampleHistoricalGas,
@@ -127,7 +128,24 @@ export function validateRequest(body) {
     if (gas < 21000n) throw new RequestError("gas below the 21000 intrinsic floor", { field: "gas" });
   }
 
-  return { from, to, data, value, gas, blockTag: body.blockTag, chainId: body.chainId };
+  return { from, to, data, value, gas, blockTag: parseBlockTag(body.blockTag), chainId: body.chainId };
+}
+
+/**
+ * `latest` (or nothing) means "pin the current head" and is returned as null.
+ * A number, decimal or 0x, is returned as a BigInt. Anything else is the
+ * caller's mistake and must be a 400: `pending` and `earliest` are refused
+ * because neither names one fixed block, and a dry run pins exactly one.
+ */
+function parseBlockTag(raw) {
+  if (raw === undefined || raw === null || raw === "latest") return null;
+  if ((typeof raw === "string" && /^(0x[0-9a-fA-F]+|\d+)$/.test(raw)) || (Number.isSafeInteger(raw) && raw >= 0)) {
+    return BigInt(raw);
+  }
+  throw new RequestError(
+    `blockTag must be "latest" or a block number (decimal or 0x); "${String(raw).slice(0, 40)}" does not name one fixed block`,
+    { field: "blockTag" },
+  );
 }
 
 /** Classify an eth_call / eth_estimateGas failure without flattening it. */
@@ -226,10 +244,10 @@ export async function dryRun(input, deps = {}) {
   const headQuantity = await rpc.call("eth_blockNumber", []);
   const head = fromQuantity(headQuantity);
   let blockTag;
-  if (req.blockTag === undefined || req.blockTag === null || req.blockTag === "latest") {
+  if (req.blockTag === null) {
     blockTag = toQuantity(head);
   } else {
-    const wanted = BigInt(req.blockTag);
+    const wanted = req.blockTag;
     if (wanted > head) throw new RequestError(`blockTag ${wanted} is ahead of head ${head}`, { field: "blockTag" });
     blockTag = toQuantity(wanted);
   }
@@ -314,8 +332,13 @@ export async function dryRun(input, deps = {}) {
   // --- affordability. This is the check eth_estimateGas does NOT do for
   // zero-value calls: we measured a sender with no native balance getting a
   // clean estimate.
+  // The limit is priced at the ceiling (maxFeePerGas) because that is what the
+  // sender must be able to cover. The expected cost is priced at what is actually
+  // charged: base fee plus tip. Using the ceiling for both overstated the
+  // expected cost by the whole fee buffer.
+  const effectiveGasPrice = fees.baseFee + fees.priorityFee;
   const limitCostWei = gasPlan.gasLimit !== null ? gasPlan.gasLimit * fees.maxFeePerGas : null;
-  const expectedCostWei = gasPlan.expectedGas !== null ? gasPlan.expectedGas * fees.maxFeePerGas : null;
+  const expectedCostWei = gasPlan.expectedGas !== null ? gasPlan.expectedGas * effectiveGasPrice : null;
   const requiredWei = (limitCostWei ?? 0n) + req.value;
   const sufficient = balance >= requiredWei;
   const shortfall = sufficient ? 0n : requiredWei - balance;
@@ -357,7 +380,9 @@ export async function dryRun(input, deps = {}) {
   if (gasPlan.aboveIntrinsic === false) {
     blocking.push(`gas limit ${gasPlan.gasLimit} is below the ${intrinsic} intrinsic floor`);
   }
-  if (gasPlan.gasLimit === null) {
+  // A revert has no gas requirement by definition; saying "no gas limit" on top
+  // of the real reason is noise that buries it.
+  if (gasPlan.gasLimit === null && execution.status === "succeeds") {
     blocking.push("no gas limit could be derived, so this transaction is not submittable as-is");
   }
   if (token?.readStatus === "unavailable") {
@@ -373,6 +398,19 @@ export async function dryRun(input, deps = {}) {
     succeeds: !sufficient ? "INSUFFICIENT-FUNDS" : token?.readStatus === "unavailable" ? "INCOMPLETE" : gasPlan.gasLimit === null ? "INCOMPLETE" : "READY",
   }[execution.status] || "INCOMPLETE";
 
+  // --- expected outcome: before/after balances, derived and labelled as such
+  const outcome = await buildOutcome({
+    rpc,
+    blockTag,
+    block: pinnedBlock,
+    req,
+    intent,
+    token,
+    execution,
+    expectedCostWei,
+    senderBalance: balance,
+  });
+
   // --- what this tool could not see. Stated, never omitted.
   const notMeasured = [
     "post-state balances and allowances: this node rejects prestateTracer, drops logs from callTracer, omits memory from structLogs, and has no eth_simulateV1 — so the delta list above is derived from calldata, not observed",
@@ -382,8 +420,10 @@ export async function dryRun(input, deps = {}) {
   ];
   if (!selectorUsed) notMeasured.push("gas history: a call with no selector has no comparable past transactions");
 
-  // --- a transaction object the caller can sign. Never signed here.
-  const submit = {
+  // --- a transaction object the caller can sign. Never signed here, and only
+  // produced when the simulation says it is safe to send: a payload for a
+  // transaction that reverts is an invitation to send it.
+  const submit = verdict !== "READY" ? null : {
     chainId: actualChain,
     from: req.from,
     to: req.to,
@@ -402,6 +442,11 @@ export async function dryRun(input, deps = {}) {
     request: { from: req.from, to: req.to, data: req.data, value: req.value.toString(), gas: req.gas?.toString() ?? null },
     intent,
     verdict,
+    gate: {
+      allowed: verdict === "READY",
+      verdict,
+      reasons: blocking,
+    },
     blocking,
     execution,
     gas: {
@@ -430,6 +475,7 @@ export async function dryRun(input, deps = {}) {
     fees: {
       baseFee: fees.baseFee.toString(),
       priorityFee: fees.priorityFee.toString(),
+      effectiveGasPrice: effectiveGasPrice.toString(),
       maxFeePerGas: fees.maxFeePerGas.toString(),
       source: fees.source,
       baseFeeSpread: { min: fees.spread.min.toString(), max: fees.spread.max.toString(), samples: fees.spread.samples },
@@ -451,9 +497,48 @@ export async function dryRun(input, deps = {}) {
       shortfallPROS: formatPROS(shortfall),
     },
     token,
+    outcome,
     notMeasured,
     submit,
   };
+}
+
+/** Thrown when a send is attempted for a transaction the simulation did not clear. */
+export class ExecutionBlockedError extends Error {
+  constructor(report) {
+    const reasons = report?.gate?.reasons?.length ? report.gate.reasons.join("; ") : "the simulation did not clear it";
+    super(`execution blocked: verdict ${report?.verdict ?? "unknown"}: ${reasons}`);
+    this.name = "ExecutionBlockedError";
+    this.verdict = report?.verdict ?? null;
+    this.reasons = report?.gate?.reasons ?? [];
+    this.report = report;
+  }
+}
+
+/** Return the unsigned payload, or throw if the simulation did not clear it. */
+export function assertReady(report) {
+  if (!report || report.verdict !== "READY" || !report.gate?.allowed || !report.submit) {
+    throw new ExecutionBlockedError(report);
+  }
+  return report.submit;
+}
+
+/**
+ * Hand the unsigned payload to `send` only when the simulation cleared it.
+ * `send` is the caller's own signer/broadcaster; this tool never provides one.
+ * A blocked transaction never reaches `send`.
+ */
+export async function executeIfReady(report, send) {
+  const payload = assertReady(report);
+  if (typeof send !== "function") throw new TypeError("executeIfReady needs a send function");
+  return send(payload, report);
+}
+
+/** Simulate, then send only if the simulation clears it. One call, no way to skip the gate. */
+export async function executeGuarded(input, send, deps = {}) {
+  const report = await dryRun(input, deps);
+  const result = await executeIfReady(report, send);
+  return { report, result };
 }
 
 const formatTokenAmount = (value, decimals) => formatUnits(value, decimals);

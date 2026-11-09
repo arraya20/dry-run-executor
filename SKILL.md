@@ -35,10 +35,21 @@ node bin/dry-run.mjs --from 0x… --to 0x… --block 22117853
 
 Exit codes: `0` READY, `1` do not send, `2` bad usage / nothing simulated.
 
+Block pin: `--block` / `blockTag` is `latest` or one block number. `pending` and
+`earliest` are refused.
+
+Gate: `submit` is `null` and `gate.allowed` is false unless the verdict is
+`READY`. In code, `executeGuarded(tx, send)` runs `send` only when READY and
+throws `ExecutionBlockedError` otherwise.
+
+Outcome: the report lists before/after balances for sender and recipient. After
+values are derived from calldata, never observed. A failing call gets
+`not predicted`.
+
 Verification of the tool itself:
 
 ```bash
-npm test              # offline: 38 unit + 18 api
+npm test              # offline: 47 unit + 29 api
 npm run test:live     # 15 tests against Pharos, structure only
 npm run verify:chain  # re-derives every external claim from the chain
 ```
@@ -94,4 +105,5 @@ revoke, not a grant.
 - Present a derived balance delta as an observed one.
 - Turn a node outage into a clean report. A failed call is `502` / `INCOMPLETE`,
   never `READY`.
+- Call `send` for a simulation that is not `READY`.
 - Sign or broadcast.

@@ -15,7 +15,7 @@ import { toQuantity, fromQuantity, isAddress, wordToBigInt, padWord, strip0x } f
 import { decodeRevert, PANIC_CODES } from "../src/revert.mjs";
 import { decodeIntent } from "../src/intent.mjs";
 import { intrinsicGas, planGas, percentile, quoteFees } from "../src/gas.mjs";
-import { validateRequest, RequestError, formatPROS, formatTokenAmount } from "../src/simulate.mjs";
+import { validateRequest, RequestError, formatPROS, formatTokenAmount, assertReady, executeIfReady, ExecutionBlockedError } from "../src/simulate.mjs";
 
 suite("unit");
 
@@ -393,6 +393,70 @@ test("formatting is exact, so no amount is rounded away", () => {
   eq(formatPROS(wei), "0.123456789012345678");
   const [w, f = ""] = formatPROS(wei).split(".");
   eq(BigInt(w) * 10n ** 18n + BigInt((f + "0".repeat(18)).slice(0, 18)), wei);
+});
+
+// ---------------------------------------------------------------- block tag
+test("latest and a missing block tag both mean 'pin the head'", () => {
+  eq(validateRequest({ from: alice, to: bob }).blockTag, null);
+  eq(validateRequest({ from: alice, to: bob, blockTag: "latest" }).blockTag, null);
+});
+
+test("a block number is accepted as decimal, 0x, or a safe integer", () => {
+  eq(validateRequest({ from: alice, to: bob, blockTag: "22117853" }).blockTag, 22117853n);
+  eq(validateRequest({ from: alice, to: bob, blockTag: "0x10" }).blockTag, 16n);
+  eq(validateRequest({ from: alice, to: bob, blockTag: 42 }).blockTag, 42n);
+  eq(validateRequest({ from: alice, to: bob, blockTag: 0 }).blockTag, 0n);
+});
+
+test("a block tag that does not name one block is a RequestError on blockTag", () => {
+  for (const bad of ["abc", "pending", "earliest", "safe", "-1", "1.5", "0x", "", -1, 1.5, {}, [], true]) {
+    let error = null;
+    try {
+      validateRequest({ from: alice, to: bob, blockTag: bad });
+    } catch (err) {
+      error = err;
+    }
+    ok(error instanceof RequestError, `blockTag ${JSON.stringify(bad)} must be a RequestError, not ${error?.name}`);
+    eq(error.field, "blockTag");
+  }
+});
+
+// ---------------------------------------------------------------- execution gate
+const clearedReport = { verdict: "READY", gate: { allowed: true, reasons: [] }, submit: { to: bob, gas: 21000 } };
+const blockedReport = {
+  verdict: "WILL-REVERT",
+  gate: { allowed: false, reasons: ["the call reverts at block 1: nope"] },
+  submit: null,
+};
+
+test("assertReady returns the payload for a cleared simulation", () => {
+  eq(assertReady(clearedReport).gas, 21000);
+});
+
+test("assertReady refuses a blocked simulation and says why", async () => {
+  const error = await throws(() => assertReady(blockedReport), "WILL-REVERT");
+  ok(error instanceof ExecutionBlockedError);
+  includes(error.message, "nope");
+  eq(error.verdict, "WILL-REVERT");
+});
+
+test("a report that claims READY but has no payload or open gate is still refused", async () => {
+  await throws(() => assertReady({ verdict: "READY", gate: { allowed: false, reasons: [] }, submit: null }), "blocked");
+  await throws(() => assertReady({ verdict: "READY", gate: { allowed: true, reasons: [] }, submit: null }), "blocked");
+  await throws(() => assertReady(null), "blocked");
+});
+
+test("executeIfReady never calls send for a blocked simulation", async () => {
+  let called = false;
+  await throws(() => executeIfReady(blockedReport, () => { called = true; }), "blocked");
+  ok(!called, "send must not run when the gate is closed");
+});
+
+test("executeIfReady hands the unsigned payload to send when cleared", async () => {
+  let seen = null;
+  const result = await executeIfReady(clearedReport, async (payload) => { seen = payload; return "sent"; });
+  eq(result, "sent");
+  eq(seen.gas, 21000);
 });
 
 // ---------------------------------------------------------------- summary

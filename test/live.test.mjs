@@ -56,15 +56,16 @@ test("intrinsic gas never exceeds the measured requirement", async () => {
   ok(BigInt(report.gas.intrinsic) <= BigInt(report.gas.expected), "intrinsic is a floor, so it cannot exceed the measurement");
 });
 
-test("cost is derived from the measured gas and the quoted fee", async () => {
+test("cost is derived from the measured gas and the charged fee", async () => {
   const report = await once();
   ok(BigInt(report.cost.expectedWei) > 0n);
-  ok(BigInt(report.fees.maxFeePerGas) > 0n);
+  ok(BigInt(report.fees.effectiveGasPrice) > 0n);
   eq(
     BigInt(report.cost.expectedWei),
-    BigInt(report.gas.expected) * BigInt(report.fees.maxFeePerGas),
-    "expected cost must be gas times fee",
+    BigInt(report.gas.expected) * BigInt(report.fees.effectiveGasPrice),
+    "expected cost must be gas times the charged price, not the fee ceiling",
   );
+  ok(BigInt(report.fees.maxFeePerGas) >= BigInt(report.fees.effectiveGasPrice), "the ceiling never sits below the charged price");
 });
 
 test("affordability is computed from the real balance", async () => {
@@ -160,11 +161,16 @@ test("the report survives JSON round trip", async () => {
   eq(typeof parsed.gas.expected, "string");
 });
 
-test("the submit payload is never signed", async () => {
+test("the submit payload is never signed, and is withheld unless READY", async () => {
   const report = await once();
-  ok(!("signature" in report.submit), "no signature");
-  ok(!("signedTransaction" in report.submit), "no signed payload");
-  eq(report.submit.chainId, PHAROS.chainId);
+  if (report.verdict === "READY") {
+    ok(!("signature" in report.submit), "no signature");
+    ok(!("signedTransaction" in report.submit), "no signed payload");
+    eq(report.submit.chainId, PHAROS.chainId);
+  } else {
+    eq(report.submit, null, "a blocked transaction must not come with a payload");
+    eq(report.gate.allowed, false);
+  }
 });
 
 test("the block is pinned consistently across every read", async () => {

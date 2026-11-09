@@ -2,7 +2,7 @@
 
 Simulate a Pharos transaction against real chain state before you sign it.
 
-Answers four questions, each with a number that came from a node rather than from
+Answers five questions, each with a number that came from a node rather than from
 an assumption:
 
 1. **Will it revert?** Executed via `eth_call` at a pinned block. The failure is
@@ -13,6 +13,10 @@ an assumption:
    The node's own estimator does not do this check.
 4. **What am I actually authorising?** Calldata decoded into an intent, with
    unlimited approvals flagged.
+5. **What changes?** Sender and recipient balances (native or token) before and
+   after. "Before" is read from the chain at the pinned block; "after" is
+   derived from the calldata and labelled as such, because this node cannot
+   observe post-state.
 
 It never signs and never broadcasts. The output is an unsigned payload and a
 verdict; the decision stays with you.
@@ -135,6 +139,10 @@ node bin/dry-run.mjs \
 node bin/dry-run.mjs --from 0x… --to 0x… --json
 ```
 
+The report has an `OUTCOME — before and after (derived, not observed)` section.
+A failing call gets `not predicted` instead: a reverted call changes nothing
+except gas.
+
 Exit codes are part of the contract, because the point of a dry run is to gate a
 send:
 
@@ -159,7 +167,29 @@ node bin/dry-run.mjs --from "$FROM" --to "$TO" --data "$DATA" && cast send …
 | `INSUFFICIENT-FUNDS` | the sender cannot pay, or the value exceeds the balance |
 | `INCOMPLETE` | something needed to submit could not be determined |
 
-These are kept distinct on purpose. An earlier revision collapsed every
+### Execution gate
+
+A failed simulation blocks execution; it is not a suggestion.
+
+- The `submit` payload is `null` unless the verdict is `READY`. The report
+  carries `gate: { allowed, verdict, reasons }` saying why.
+- For code that sends, use the guards in `src/simulate.mjs`:
+
+```js
+import { executeGuarded } from "./src/simulate.mjs";
+
+// `send` is your signer. It is called only if the simulation is READY;
+// otherwise ExecutionBlockedError is thrown and `send` never runs.
+const { report, result } = await executeGuarded(tx, send);
+```
+
+`assertReady(report)` returns the payload or throws `ExecutionBlockedError`;
+`executeIfReady(report, send)` wraps it for an existing report. The tool itself
+still never signs.
+
+The verdicts above are kept distinct on purpose.
+
+ An earlier revision collapsed every
 non-success into `WILL-REVERT`, which reported a node outage as though the chain
 had rejected the transaction.
 
@@ -180,6 +210,13 @@ had rejected the transaction.
 
 Permitted fields: `from`, `to`, `data`, `value`, `gas`, `blockTag`, `chainId`.
 
+`blockTag` is `"latest"` (default) or one block number (decimal or `0x`).
+`pending` and `earliest` are refused with `400` because they do not name one
+fixed block. A number ahead of head is refused too.
+
+The report includes `fees.effectiveGasPrice` (base fee + priority fee). Expected
+cost is priced at that; the maximum cost is priced at `maxFeePerGas`.
+
 Anything else is refused with `400` naming the field. Fields that read like a
 conclusion — `mockRevert`, `willSucceed`, `gasUsed`, `verdict`, `status`,
 `revertReason` — get a specific message rather than a generic rejection, because
@@ -193,7 +230,7 @@ plausible-looking report.
 ## Development
 
 ```bash
-npm test              # 38 unit + 18 api, offline, no install
+npm test              # 47 unit + 29 api, offline, no install
 npm run test:live     # 15 tests against Pharos, opt-in, structure only
 npm run verify:chain  # 12 checks re-deriving every external claim
 ```
@@ -202,6 +239,12 @@ The offline suite needs nothing but `node`. The API tests start a real HTTP
 JSON-RPC server on localhost whose `eth_call` succeeds only above a known gas
 threshold, so the bisection is exercised against a ground truth rather than a
 mocked return value.
+
+`verify:chain` needs historical transactions for two checks. If the chain offers
+none in the window, those checks print `SKIP` and do not fail the run.
+The bisection accuracy figures in this file are a snapshot; the last run
+measured a mean error of 0.66% against receipts, versus +29.1% for
+`eth_estimateGas`.
 
 The live suite asserts structure, not verdicts: a verdict depends on chain state
 that moves every block, and a test that fails because a wallet spent its balance
@@ -226,7 +269,8 @@ src/rpc.mjs         JSON-RPC client; retries transport, never retries a revert
 src/revert.mjs      revert decoding, registry selectors computed not hardcoded
 src/intent.mjs      calldata → intent + derived balance/allowance deltas
 src/gas.mjs         intrinsic gas, bisection, fee quote, historical sampler
-src/simulate.mjs    the dry run: validation, execution, cost, funding, verdict
+src/outcome.mjs     before/after balances: read before, derive after
+src/simulate.mjs    the dry run: validation, execution, cost, funding, verdict, gate
 src/report.mjs      terminal rendering
 bin/dry-run.mjs     CLI
 functions/api/      Cloudflare Pages Function

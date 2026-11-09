@@ -314,10 +314,125 @@ test("nothing in the report claims an observed post-state", async () => {
 test("the submit payload is unsigned and complete", async () => {
   const res = await post({ from: SENDER, to: EOA, value: "1" });
   const report = await res.json();
+  eq(report.verdict, "READY");
   eq(report.submit.chainId, 1672);
   eq(report.submit.from, SENDER);
   ok(report.submit.gas > 0);
   ok(!("signature" in report.submit) && !("signedTransaction" in report.submit), "the tool must not sign");
+});
+
+test("a blocked simulation withholds the submit payload and closes the gate", async () => {
+  state.mode = "revert";
+  const res = await post({ from: SENDER, to: CONTRACT, data: "0xa9059cbb" });
+  const report = await res.json();
+  eq(report.verdict, "WILL-REVERT");
+  eq(report.submit, null, "a payload for a reverting transaction is an invitation to send it");
+  eq(report.gate.allowed, false);
+  ok(report.gate.reasons.length > 0, "the gate states why it is closed");
+  ok(
+    !report.blocking.some((line) => line.includes("no gas limit")),
+    "a revert must not also be reported as a missing gas limit",
+  );
+  state.mode = "ok";
+});
+
+test("an unaffordable sender also gets no submit payload", async () => {
+  state.balances.set(SENDER.toLowerCase(), 0n);
+  const res = await post({ from: SENDER, to: EOA, value: "1" });
+  const report = await res.json();
+  eq(report.verdict, "INSUFFICIENT-FUNDS");
+  eq(report.submit, null);
+  eq(report.gate.allowed, false);
+  state.balances.set(SENDER.toLowerCase(), 10n ** 19n);
+});
+
+test("a cleared simulation opens the gate", async () => {
+  const res = await post({ from: SENDER, to: EOA, value: "1" });
+  const report = await res.json();
+  eq(report.gate.allowed, true);
+  ok(report.submit !== null);
+});
+
+test("expected cost is priced at what is charged, not at the fee ceiling", async () => {
+  const res = await post({ from: SENDER, to: EOA, value: "1" });
+  const report = await res.json();
+  // 10 gwei base fee, 0 tip. maxFeePerGas carries a 20% buffer on top.
+  eq(report.fees.effectiveGasPrice, (10n * GWEI).toString());
+  eq(report.cost.expectedWei, (MIN_GAS * 10n * GWEI).toString());
+  ok(BigInt(report.fees.maxFeePerGas) > BigInt(report.fees.effectiveGasPrice), "the ceiling sits above the charged price");
+  eq(report.cost.maxWei, (BigInt(report.gas.limit) * BigInt(report.fees.maxFeePerGas)).toString());
+});
+
+test("a native transfer reports sender and recipient before and after", async () => {
+  const res = await post({ from: SENDER, to: EOA, value: "1000" });
+  const report = await res.json();
+  eq(report.outcome.status, "predicted");
+  const sender = report.outcome.rows.find((r) => r.account === SENDER && r.kind === "native");
+  const recipient = report.outcome.rows.find((r) => r.account === EOA && r.kind === "native");
+  ok(sender && recipient, "both sides of the transfer must appear");
+
+  const cost = BigInt(report.cost.expectedWei);
+  eq(sender.before, (10n ** 19n).toString());
+  eq(sender.after, (10n ** 19n - 1000n - cost).toString(), "sender pays value and expected gas");
+  eq(recipient.before, "0");
+  eq(recipient.after, "1000");
+  eq(sender.observed, false, "the after figure is derived");
+  includes(report.outcome.basis, "derived");
+});
+
+test("a token transfer reports token balances before and after", async () => {
+  // The stub answers every token read with 1, so a transfer of 1 takes the
+  // sender from 1 to 0 and the recipient from 1 to 2.
+  const data = "0xa9059cbb" + EOA.slice(2).padStart(64, "0") + "0".repeat(63) + "1";
+  const res = await post({ from: SENDER, to: CONTRACT, data });
+  const report = await res.json();
+  eq(report.outcome.status, "predicted");
+  const sender = report.outcome.rows.find((r) => r.account === SENDER && r.kind === "token-balance");
+  const recipient = report.outcome.rows.find((r) => r.account === EOA && r.kind === "token-balance");
+  eq(sender.before, "1");
+  eq(sender.after, "0");
+  eq(recipient.before, "1");
+  eq(recipient.after, "2");
+});
+
+test("a derived change that cannot hold gives no after figure instead of a negative one", async () => {
+  // Sending 5 when the chain says the holder has 1: the arithmetic would go negative.
+  const data = "0xa9059cbb" + EOA.slice(2).padStart(64, "0") + "0".repeat(63) + "5";
+  const res = await post({ from: SENDER, to: CONTRACT, data });
+  const report = await res.json();
+  const sender = report.outcome.rows.find((r) => r.account === SENDER && r.kind === "token-balance");
+  eq(sender.after, null);
+  includes(sender.note, "below zero");
+});
+
+test("a failing call predicts no outcome", async () => {
+  state.mode = "revert";
+  const res = await post({ from: SENDER, to: CONTRACT, data: "0xa9059cbb" });
+  const report = await res.json();
+  eq(report.outcome.status, "not-predicted");
+  eq(report.outcome.rows.length, 0);
+  state.mode = "ok";
+});
+
+test("a block tag that does not name one block is a 400 naming the field", async () => {
+  for (const blockTag of ["abc", "pending", "earliest", "-1", "1.5"]) {
+    const res = await post({ from: SENDER, to: EOA, blockTag });
+    eq(res.status, 400, `${blockTag} must be a 400, not a 502`);
+    const body = await res.json();
+    eq(body.field, "blockTag");
+  }
+});
+
+test("a numeric block tag is pinned, and one ahead of head is refused", async () => {
+  const ok1 = await post({ from: SENDER, to: EOA, value: "1", blockTag: "0x80" });
+  eq(ok1.status, 200);
+  eq((await ok1.json()).chain.block, 128);
+
+  const dec = await post({ from: SENDER, to: EOA, value: "1", blockTag: "64" });
+  eq((await dec.json()).chain.block, 64);
+
+  const ahead = await post({ from: SENDER, to: EOA, blockTag: "0x9999" });
+  eq(ahead.status, 400);
 });
 
 const failures = await run();

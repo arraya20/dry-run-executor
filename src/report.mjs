@@ -67,7 +67,7 @@ export function renderText(report) {
 
   push("COST");
   if (report.gas.expected) {
-    push(`  expected   ${num(report.gas.expected)} gas × ${gwei(report.fees.maxFeePerGas)} gwei = ${PROS(report.cost.expectedWei)} PROS`);
+    push(`  expected   ${num(report.gas.expected)} gas × ${gwei(report.fees.effectiveGasPrice)} gwei = ${PROS(report.cost.expectedWei)} PROS`);
     push(`             source: ${report.gas.expectedSource}`);
   } else {
     push("  expected   unknown — no gas figure could be established");
@@ -118,7 +118,28 @@ export function renderText(report) {
   );
   push();
 
-  if (report.intent.deltas?.length) {
+  if (report.outcome?.status === "predicted" && report.outcome.rows.length) {
+    push("OUTCOME — before and after (derived, not observed)");
+    for (const r of report.outcome.rows) {
+      const who = short(r.account);
+      const what = r.kind === "allowance" ? `${r.asset} allowance for ${short(r.spender)}` : r.asset;
+      const before = r.beforeFormatted ?? r.before ?? "unreadable";
+      const after = r.afterFormatted ?? r.after ?? "unknown";
+      const change = r.changeFormatted ?? r.change;
+      push(`  ${who}  ${what}`);
+      push(`    before ${before}   after ${after}${change !== null && change !== undefined ? `   (${change.startsWith("-") || change.startsWith("+") ? change : "+" + change})` : ""}`);
+      if (r.note) push(`    note: ${r.note}`);
+    }
+    for (const n of report.outcome.notes) push(`  note: ${n}`);
+    push(`  basis: ${report.outcome.basis}`);
+    push();
+  } else if (report.outcome?.status === "not-predicted") {
+    push("OUTCOME");
+    push(`  not predicted: ${report.outcome.reason}`);
+    push();
+  }
+
+  if (report.intent.deltas?.length && report.execution.status === "succeeds") {
     push("EXPECTED CHANGES (derived from calldata, not observed)");
     for (const d of report.intent.deltas) {
       const sign = String(d.change).startsWith("-") ? "" : "+";
@@ -137,6 +158,11 @@ export function renderText(report) {
   for (const n of report.notMeasured) push(`  · ${n}`);
   push();
 
+  if (!report.submit) {
+    push("SUBMIT PAYLOAD");
+    push(`  withheld: the verdict is ${report.verdict}, so no payload is offered to sign`);
+    return out.join("\n");
+  }
   push("SUBMIT PAYLOAD (unsigned — this tool never signs or broadcasts)");
   push(`  chainId ${report.submit.chainId}  nonce ${report.submit.nonce}  type ${report.submit.type}`);
   push(`  to      ${report.submit.to}`);
